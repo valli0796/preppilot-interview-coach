@@ -1,0 +1,6 @@
+venv/
+__pycache__/
+*.pyc
+database/interview_prep.db
+.streamlit/secrets.toml
+.DS_Store
