@@ -1,37 +1,34 @@
-"""
-app.py
-------
-AI-Based Interview Preparation System — main Streamlit entry point.
-"""
-
 from pathlib import Path
 import streamlit as st
-
+import plotly.express as px
 from modules.database import init_db, seed_questions_from_csv
 from modules.auth import register_user, login_user
-from modules.questions import JOB_ROLES, get_questions, save_result, get_user_results
-from modules.scoring import score_answer
-
+from modules.questions import SUGGESTED_ROLES, get_next_question, save_result, get_user_results
+from modules.scoring import score_answer_with_details
+from modules.llm_feedback import generate_llm_feedback
+from modules.dashboard import results_to_dataframe, compute_summary, average_by_role, average_by_category
 DATA_CSV = Path(__file__).resolve().parent / "data" / "questions.csv"
-
-st.set_page_config(page_title="AI Interview Prep", page_icon="🎯", layout="centered")
-
+st.set_page_config(page_title="PrepPilot", page_icon="🎯", layout="centered")
 init_db()
 seed_questions_from_csv(DATA_CSV)
-
 if "user" not in st.session_state:
     st.session_state.user = None
 if "current_question" not in st.session_state:
     st.session_state.current_question = None
-
+if "last_feedback" not in st.session_state:
+    st.session_state.last_feedback = None
+if "active_role" not in st.session_state:
+    st.session_state.active_role = None
+if "active_category" not in st.session_state:
+    st.session_state.active_category = None
 
 def logout():
     st.session_state.user = None
     st.session_state.current_question = None
-
+    st.session_state.last_feedback = None
 
 def show_auth_screen():
-    st.title("🎯 AI Interview Prep")
+    st.title("🎯PrepPilot")
     st.caption("Practice technical and HR interviews with instant feedback.")
 
     tab_login, tab_register = st.tabs(["Log In", "Register"])
@@ -64,7 +61,6 @@ def show_auth_screen():
                 else:
                     st.error(message)
 
-
 def show_main_app():
     user = st.session_state.user
 
@@ -75,9 +71,9 @@ def show_main_app():
             logout()
             st.rerun()
 
-    st.title("🎯 AI Interview Prep")
+    st.title("🎯PrepPilot")
 
-    tab_practice, tab_history = st.tabs(["Practice Interview", "My History"])
+    tab_practice, tab_history, tab_dashboard = st.tabs(["Practice Interview", "My History", "Dashboard"])
 
     with tab_practice:
         run_practice_tab(user)
@@ -85,50 +81,81 @@ def show_main_app():
     with tab_history:
         run_history_tab(user)
 
+    with tab_dashboard:
+        run_dashboard_tab(user)
 
 def run_practice_tab(user):
     col1, col2 = st.columns(2)
     with col1:
-        job_role = st.selectbox("Select Job Role", JOB_ROLES)
-    with col2:
-        category = "HR" if job_role == "HR Interview" else st.selectbox(
-            "Interview Type", ["Technical"]
+        role_choice = st.selectbox(
+            "Job Role", SUGGESTED_ROLES + ["Other (type your own)"],
+            key="role_select",
         )
-
-    if st.button("Get a Question", type="primary"):
-        questions = get_questions(job_role, category=category)
-        if not questions:
-            st.warning("No questions found for this role yet.")
+        if role_choice == "Other (type your own)":
+            job_role = st.text_input("Type any job role", key="custom_role")
         else:
-            import random
-            st.session_state.current_question = random.choice(questions)
+            job_role = role_choice
+
+    with col2:
+        category = st.selectbox("Interview Type", ["Technical", "HR"], key="category_select")
+
+    role_changed = (
+        st.session_state.active_role != job_role
+        or st.session_state.active_category != category
+    )
+
+    start_disabled = not job_role or not job_role.strip()
+
+    if st.button("Start / Change Role", type="primary", disabled=start_disabled):
+        st.session_state.active_role = job_role
+        st.session_state.active_category = category
+        st.session_state.current_question, generated = get_next_question(job_role, category, user["user_id"])
+        st.session_state.last_feedback = None
+        if generated:
+            st.toast("Generated a fresh question with AI for this role.")
+        st.rerun()
 
     q = st.session_state.current_question
-    if q:
+    if q and not role_changed:
         st.divider()
         st.subheader("Question")
         st.write(q["question"])
-        st.caption(f"Role: {q['job_role']} · Difficulty: {q['difficulty']}")
+        st.caption(f"Role: {st.session_state.active_role} · Difficulty: {q.get('difficulty', '—')}")
 
-        answer = st.text_area("Your Answer", height=150, key=f"answer_{q['question_id']}")
-
-        if st.button("Submit Answer"):
-            score, feedback = score_answer(answer, q["expected_keywords"])
-            save_result(user["user_id"], q["question_id"], answer, score, feedback)
-
-            st.metric("Score", f"{score}/100")
+        if st.session_state.last_feedback:
+            score, feedback = st.session_state.last_feedback
+            st.metric("Last Score", f"{score}/100")
             if score >= 80:
                 st.success(feedback)
             elif score >= 40:
                 st.warning(feedback)
             else:
                 st.error(feedback)
+            st.caption("New question loaded automatically — answer below.")
 
-            st.info(
-                "Note: this is a placeholder keyword-based score. "
-                "Real NLP-based semantic scoring is planned for Week 2."
+        answer = st.text_area("Your Answer", height=150, key=f"answer_{q['question_id']}")
+
+        if st.button("Submit Answer"):
+            score, rule_feedback, matched, missing = score_answer_with_details(
+                answer, q["expected_keywords"], q.get("reference_answer", "")
             )
+            feedback = generate_llm_feedback(
+                q["question"], answer, score, matched, missing, rule_feedback
+            )
+            save_result(user["user_id"], q["question_id"], answer, score, feedback)
+            st.session_state.last_feedback = (score, feedback)
 
+            with st.spinner("Loading your next question..."):
+                next_q, generated = get_next_question(
+                    st.session_state.active_role, st.session_state.active_category, user["user_id"]
+                )
+                st.session_state.current_question = next_q
+                if generated:
+                    st.toast("Generated a fresh question with AI.")
+
+            st.rerun()
+    elif not q:
+        st.info("Pick a job role above and click 'Start / Change Role' to begin.")
 
 def run_history_tab(user):
     results = get_user_results(user["user_id"])
@@ -136,8 +163,10 @@ def run_history_tab(user):
         st.info("No interview attempts yet. Head to the Practice tab to get started.")
         return
 
+    valid_scores = [float(r["score"]) for r in results if isinstance(r["score"], (int, float))]
+    avg_score = sum(valid_scores) / len(valid_scores) if valid_scores else 0.0
+
     st.metric("Total Attempts", len(results))
-    avg_score = sum(r["score"] for r in results) / len(results)
     st.metric("Average Score", f"{avg_score:.1f}/100")
 
     for r in results:
@@ -146,6 +175,47 @@ def run_history_tab(user):
             st.write(f"**Feedback:** {r['feedback']}")
             st.caption(f"Date: {r['date']}")
 
+def run_dashboard_tab(user):
+    results = get_user_results(user["user_id"])
+    df = results_to_dataframe(results)
+
+    if df.empty:
+        st.info("No data yet — complete a few practice interviews to see your dashboard.")
+        return
+
+    summary = compute_summary(df)
+
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Total Attempts", summary["total_attempts"])
+    col2.metric("Average Score", f"{summary['average_score']}/100")
+    col3.metric("Strongest Role", summary["best_role"] or "—")
+    col4.metric("Weakest Role", summary["weakest_role"] or "—")
+
+    st.divider()
+
+    st.subheader("Score Over Time")
+    fig_trend = px.line(df, x="date", y="score", markers=True)
+    fig_trend.update_layout(yaxis_range=[0, 100], xaxis_title="Date", yaxis_title="Score")
+    st.plotly_chart(fig_trend, use_container_width=True)
+
+    col_a, col_b = st.columns(2)
+
+    with col_a:
+        st.subheader("Average by Job Role")
+        role_df = average_by_role(df)
+        fig_role = px.bar(role_df, x="job_role", y="score")
+        fig_role.update_layout(yaxis_range=[0, 100], xaxis_title="", yaxis_title="Avg Score")
+        st.plotly_chart(fig_role, use_container_width=True)
+
+    with col_b:
+        st.subheader("Average by Category")
+        cat_df = average_by_category(df)
+        fig_cat = px.bar(cat_df, x="category", y="score")
+        fig_cat.update_layout(yaxis_range=[0, 100], xaxis_title="", yaxis_title="Avg Score")
+        st.plotly_chart(fig_cat, use_container_width=True)
+
+    if summary["weakest_role"]:
+        st.info(f"Your weakest area right now is **{summary['weakest_role']}** — consider practicing more questions there.")
 
 if st.session_state.user is None:
     show_auth_screen()
