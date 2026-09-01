@@ -1,6 +1,7 @@
 from pathlib import Path
 import datetime
 import hashlib
+import base64
 import streamlit as st
 import extra_streamlit_components as stx
 import plotly.express as px
@@ -23,8 +24,9 @@ from modules.dashboard import (
 )
 
 DATA_CSV = Path(__file__).resolve().parent / "data" / "questions.csv"
+LOGO_PATH = "assets/logo.png"
 
-st.set_page_config(page_title="PrepPilot", page_icon="🎯", layout="centered")
+st.set_page_config(page_title="PrepPilot", page_icon=LOGO_PATH, layout="wide")
 
 cookie_manager = stx.CookieManager()
 
@@ -33,6 +35,8 @@ seed_questions_from_csv(DATA_CSV)
 
 if "user" not in st.session_state:
     st.session_state.user = None
+if "auth_mode" not in st.session_state:
+    st.session_state.auth_mode = "login"
 
 if st.session_state.user is None:
     remembered_token = cookie_manager.get("remember_token")
@@ -65,42 +69,172 @@ def logout():
     st.session_state.last_feedback = None
 
 
+def get_base64_image(path):
+    with open(path, "rb") as f:
+        return base64.b64encode(f.read()).decode()
+
+
 def show_auth_screen():
-    st.title("🎯 PrepPilot")
-    st.caption("Practice technical, coding, and HR interviews with instant feedback.")
+    logo_base64 = get_base64_image(LOGO_PATH)
 
-    tab_login, tab_register = st.tabs(["Log In", "Register"])
+    st.markdown("""
+    <style>
+    div[data-testid="stFormSubmitButton"] button {
+        background: linear-gradient(90deg, #4F46E5, #9333EA);
+        color: white;
+        border: none;
+        font-weight: 600;
+        border-radius: 8px;
+        padding: 0.4rem 0;
+    }
+    div[data-testid="stFormSubmitButton"] button:hover {
+        opacity: 0.9;
+        color: white;
+    }
+    div[data-testid="stVerticalBlock"] { gap: 0.4rem !important; }
+    .stTextInput input, .stTextInput { margin-bottom: 0 !important; }
+    div.block-container {
+        padding-top: 3rem;
+        padding-bottom: 2rem;
+        max-width: 1100px;
+        margin: 0 auto;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
-    with tab_login:
-        with st.form("login_form"):
-            email = st.text_input("Email")
-            password = st.text_input("Password", type="password")
-            submitted = st.form_submit_button("Log In")
-            if submitted:
-                success, message, user = login_user(email, password)
-                if success:
-                    st.session_state.user = user
-                    token = create_remember_token(user["user_id"])
-                    expires = datetime.datetime.now() + datetime.timedelta(days=30)
-                    cookie_manager.set("remember_token", token, expires_at=expires, key="set_remember_cookie")
+    col_left, col_right = st.columns([1.15, 1])
+
+    with col_left:
+        st.markdown(f"""
+        <div style="
+            background: linear-gradient(135deg, #1e1b3a, #4c1d95, #6d28d9);
+            padding: 1.5rem 1.5rem;
+            border-radius: 16px;
+            color: white;
+            height: 100%;
+        ">
+            <div style="text-align: center; margin-bottom: 0.8rem;">
+                <div style="background: white; border-radius: 18px; width: 75px; height: 75px;
+                            display: inline-flex; align-items: center; justify-content: center;">
+                    <img src="data:image/png;base64,{logo_base64}" width="50" />
+                </div>
+                <div style="margin: 0.8rem 0 0.3rem 0; font-size: 2.6rem; font-weight: 700; line-height: 2; padding: 0.5rem 0; text-align: center; overflow: visible; width: 100%;">
+                    <span style="color: white;">Prep</span><span style="color: #a78bfa;">Pilot</span>
+                </div>
+                <p style="font-style: italic; opacity: 0.85; margin: 0; font-size: 0.85rem;">
+                    Prepare. Practice. <span style="color: #a78bfa;">Succeed.</span>
+                </p>
+            </div>
+            <div style="display: flex; align-items: flex-start; gap: 0.6rem; margin-bottom: 0.5rem;
+                        background: rgba(255,255,255,0.08); padding: 0.6rem 0.7rem; border-radius: 10px;">
+                <span style="font-size: 1.3rem; margin-top: 0.15rem; flex-shrink: 0; width: 28px; display: inline-block; text-align: center;">🤖</span>
+                <div>
+                    <strong style="font-size: 1rem;">AI Interview Coach</strong><br>
+                    <span style="opacity: 0.85; font-size: 0.85rem;">Smart guidance for every step</span>
+                </div>
+            </div>
+            <div style="display: flex; align-items: flex-start; gap: 0.6rem; margin-bottom: 0.5rem;
+                        background: rgba(255,255,255,0.08); padding: 0.6rem 0.7rem; border-radius: 10px;">
+                <span style="font-size: 1.3rem; margin-top: 0.15rem; flex-shrink: 0; width: 28px; display: inline-block; text-align: center;">💬</span>
+                <div>
+                    <strong style="font-size: 1rem;">Instant Feedback</strong><br>
+                    <span style="opacity: 0.85; font-size: 0.85rem;">Get real-time AI feedback</span>
+                </div>
+            </div>
+            <div style="display: flex; align-items: flex-start; gap: 0.6rem; margin-bottom: 0.7rem;
+                        background: rgba(255,255,255,0.08); padding: 0.6rem 0.7rem; border-radius: 10px;">
+                <span style="font-size: 1.3rem; margin-top: 0.15rem; flex-shrink: 0; width: 28px; display: inline-block; text-align: center;">🎯</span>
+                <div>
+                    <strong style="font-size: 1rem;">Personalized Practice</strong><br>
+                    <span style="opacity: 0.85; font-size: 0.85rem;">Practice your way, improve every day</span>
+                </div>
+            </div>
+            <div style="text-align: center; background: rgba(255,255,255,0.1);
+                        padding: 0.5rem; border-radius: 999px; font-size: 0.85rem;">
+                ✦ Your AI-Powered Interview Partner
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with col_right:
+        st.markdown(
+            "<h2 style='margin:0.3rem 0; font-size:1.8rem; line-height:1.8; padding:0.3rem 0; overflow:visible;'>Welcome to PrepPilot</h2>"
+            "<p style='color:#888; margin-top:0.1rem; font-size:0.85rem;'>AI-powered interview preparation</p>",
+            unsafe_allow_html=True,
+        )
+
+        col_tab1, col_tab2 = st.columns([1, 1])
+        with col_tab1:
+            if st.button("Log In", use_container_width=True,
+                         type="primary" if st.session_state.auth_mode == "login" else "secondary"):
+                st.session_state.auth_mode = "login"
+                st.rerun()
+        with col_tab2:
+            if st.button("Register", use_container_width=True,
+                         type="primary" if st.session_state.auth_mode == "register" else "secondary"):
+                st.session_state.auth_mode = "register"
+                st.rerun()
+
+        if st.session_state.auth_mode == "login":
+            with st.form("login_form"):
+                email = st.text_input("Email", placeholder="Enter your email")
+                password = st.text_input("Password", type="password", placeholder="Enter your password")
+
+                col_remember, col_forgot = st.columns([1, 1])
+                with col_remember:
+                    remember_me = st.checkbox("Remember me", value=True)
+                with col_forgot:
+                    st.markdown(
+                        "<div style='text-align: right; padding-top: 0.4rem; font-size:0.85rem;'>"
+                        "<span style='color: #a78bfa;'>Forgot password?</span></div>",
+                        unsafe_allow_html=True,
+                    )
+
+                submitted = st.form_submit_button("Log In →", use_container_width=True)
+                if submitted:
+                    success, message, user = login_user(email, password)
+                    if success:
+                        st.session_state.user = user
+                        if remember_me:
+                            token = create_remember_token(user["user_id"])
+                            expires = datetime.datetime.now() + datetime.timedelta(days=30)
+                            cookie_manager.set("remember_token", token, expires_at=expires, key="set_remember_cookie")
+                        st.rerun()
+                    else:
+                        st.error(message)
+
+            col_c1, col_c2, col_c3 = st.columns([1, 1.6, 1])
+            with col_c2:
+                if st.button("Don't have an account? Create Account", use_container_width=True):
+                    st.session_state.auth_mode = "register"
                     st.rerun()
-                else:
-                    st.error(message)
 
-    with tab_register:
-        with st.form("register_form"):
-            name = st.text_input("Full Name")
-            email_r = st.text_input("Email", key="reg_email")
-            password_r = st.text_input("Password", type="password", key="reg_pw")
-            skills = st.text_input("Skills (comma-separated, optional)")
-            qualification = st.text_input("Qualification (optional)")
-            submitted_r = st.form_submit_button("Register")
-            if submitted_r:
-                success, message = register_user(name, email_r, password_r, skills, qualification)
-                if success:
-                    st.success(message)
-                else:
-                    st.error(message)
+        else:
+            with st.form("register_form"):
+                name = st.text_input("Full Name", placeholder="Enter your full name")
+                email_r = st.text_input("Email", key="reg_email", placeholder="Enter your email")
+                password_r = st.text_input("Password", type="password", key="reg_pw", placeholder="Choose a password")
+
+                col_skill, col_qual = st.columns([1, 1])
+                with col_skill:
+                    skills = st.text_input("Skills (optional)", placeholder="e.g. Python, SQL")
+                with col_qual:
+                    qualification = st.text_input("Qualification (optional)", placeholder="e.g. B.Tech")
+
+                submitted_r = st.form_submit_button("Create Account →", use_container_width=True)
+                if submitted_r:
+                    success, message = register_user(name, email_r, password_r, skills, qualification)
+                    if success:
+                        st.success(message)
+                        st.session_state.auth_mode = "login"
+                    else:
+                        st.error(message)
+
+            col_c1, col_c2, col_c3 = st.columns([1, 1.6, 1])
+            with col_c2:
+                if st.button("Already have an account? Log In", use_container_width=True):
+                    st.session_state.auth_mode = "login"
+                    st.rerun()
 
 
 def render_sidebar_resume_upload():
@@ -180,7 +314,8 @@ def show_main_app():
     user = st.session_state.user
 
     with st.sidebar:
-        st.markdown("## 🎯 PrepPilot")
+        st.image(LOGO_PATH, width=60)
+        st.markdown("## PrepPilot")
         st.markdown(f"**Logged in as:** {user['name']}")
         st.caption(user["email"])
         if st.button("Log Out"):
