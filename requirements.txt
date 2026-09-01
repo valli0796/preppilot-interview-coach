@@ -1,6 +1,6 @@
 streamlit>=1.36.0
 pandas>=2.2.0
-numpy>=1.26.0
+numpy>=1.26.0,<2.0
 bcrypt>=4.1.0
 plotly>=5.22.0
 spacy>=3.7.0
