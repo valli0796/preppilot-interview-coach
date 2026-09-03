@@ -25,6 +25,7 @@ from modules.dashboard import (
 
 DATA_CSV = Path(__file__).resolve().parent / "data" / "questions.csv"
 LOGO_PATH = "assets/logo.png"
+APP_URL = "https://preppilot-interview-coach-h2qqxzj4eh7r9jbkhatrnr.streamlit.app/"
 
 st.set_page_config(page_title="PrepPilot", page_icon=LOGO_PATH, layout="wide")
 
@@ -316,6 +317,7 @@ def show_main_app():
     with st.sidebar:
         st.image(LOGO_PATH, width=60)
         st.markdown("## PrepPilot")
+        st.markdown(f"[🔗 Share this app]({APP_URL})")
         st.markdown(f"**Logged in as:** {user['name']}")
         st.caption(user["email"])
         if st.button("Log Out"):
